@@ -1,0 +1,39 @@
+{
+  "name": "simple-timer-card",
+  "version": "0.1.0",
+  "description": "A simple Home Assistant Lovelace card to view and control a timer entity.",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch",
+    "deploy": "vite build --mode deploy",
+    "dev:deploy": "vite build --watch --mode deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jeremy0404/simple-timer-card.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Jeremy0404/simple-timer-card/issues"
+  },
+  "homepage": "https://github.com/Jeremy0404/simple-timer-card#readme",
+  "keywords": [
+    "home-assistant",
+    "lovelace",
+    "custom-card",
+    "timer",
+    "hacs"
+  ],
+  "author": "Jeremy0404",
+  "license": "MIT",
+  "private": true,
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.3",
+    "vite": "^5.4.0"
+  },
+  "dependencies": {
+    "lit": "^3.2.0"
+  }
+}

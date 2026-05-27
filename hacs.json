@@ -1,0 +1,6 @@
+{
+  "name": "Simple Timer Card",
+  "render_readme": true,
+  "filename": "simple-timer-card.js",
+  "homeassistant": "2023.1.0"
+}
