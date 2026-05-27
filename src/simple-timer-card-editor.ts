@@ -51,7 +51,7 @@ export class SimpleTimerCardEditor extends LitElement {
   private _valueChanged(ev: CustomEvent<{ value: SimpleTimerCardConfig }>): void {
     const raw = { ...ev.detail.value } as Record<string, unknown>;
 
-    // Strip optional fields with empty/falsy values so the saved YAML stays clean.
+    // Strip empty optional fields to keep the saved YAML clean.
     for (const key of ['name', 'icon'] as const) {
       const v = raw[key];
       if (v === undefined || v === null || v === '') delete raw[key];

@@ -21,13 +21,13 @@ jobs:
 
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
       - run: npm run build
 
       - name: Attach bundle to release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dist/simple-timer-card.js
-            dist/simple-timer-card-loader.js
+          files: dist/simple-timer-card.js
           generate_release_notes: true
           fail_on_unmatched_files: true

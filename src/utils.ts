@@ -1,7 +1,4 @@
-/**
- * Parse an HA duration string ("HH:MM:SS", "H:MM:SS", or "MM:SS") to seconds.
- * Returns 0 for falsy / unparseable input.
- */
+/** Parse an HA duration string ("HH:MM:SS", "H:MM:SS" or "MM:SS") to seconds; 0 if unparseable. */
 export function parseDuration(input: string | undefined | null): number {
   if (!input) return 0;
   const parts = input.split(':').map((p) => Number(p));
@@ -13,25 +10,28 @@ export function parseDuration(input: string | undefined | null): number {
   return h * 3600 + m * 60 + s;
 }
 
-/**
- * Format a non-negative number of seconds as MM:SS, or H:MM:SS if >= 1h.
- * Negative inputs clamp to 0.
- */
+/** Format seconds as MM:SS, or H:MM:SS once >= 1 hour. Negatives clamp to 0. */
 export function formatDuration(totalSeconds: number): string {
   const t = Math.max(0, Math.floor(totalSeconds));
-  const h = Math.floor(t / 3600);
-  const m = Math.floor((t % 3600) / 60);
-  const s = t % 60;
+  const { h, m, s } = splitHMS(t);
   const pad = (n: number) => n.toString().padStart(2, '0');
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
-/** Format HH:MM:SS for service calls (timer.start expects this shape). */
+/** Format seconds as HH:MM:SS — the shape timer.start expects. */
 export function toServiceDuration(totalSeconds: number): string {
   const t = Math.max(0, Math.floor(totalSeconds));
-  const h = Math.floor(t / 3600);
-  const m = Math.floor((t % 3600) / 60);
-  const s = t % 60;
+  const { h, m, s } = splitHMS(t);
   const pad = (n: number) => n.toString().padStart(2, '0');
   return `${pad(h)}:${pad(m)}:${pad(s)}`;
+}
+
+/** Split a non-negative seconds count into hours/minutes/seconds. */
+export function splitHMS(totalSeconds: number): { h: number; m: number; s: number } {
+  const t = Math.max(0, Math.floor(totalSeconds));
+  return {
+    h: Math.floor(t / 3600),
+    m: Math.floor((t % 3600) / 60),
+    s: t % 60,
+  };
 }

@@ -1,7 +1,8 @@
 import { LitElement, html, css, nothing, type PropertyValues, type TemplateResult } from 'lit';
 import { customElement, property, state, query } from 'lit/decorators.js';
+import { styleMap } from 'lit/directives/style-map.js';
 import type { HomeAssistant, SimpleTimerCardConfig, TimerEntity } from './types.js';
-import { formatDuration, parseDuration, toServiceDuration } from './utils.js';
+import { formatDuration, parseDuration, splitHMS, toServiceDuration } from './utils.js';
 import './simple-timer-card-editor.js';
 
 const VERSION = '0.1.0';
@@ -19,20 +20,18 @@ const STATE_LABELS: Record<TimerEntity['state'], string> = {
 export class SimpleTimerCard extends LitElement {
   @property({ attribute: false }) hass?: HomeAssistant;
   @state() private _config?: SimpleTimerCardConfig;
-  @state() private _now = Date.now();
-  /** User-dialed seconds, persists across renders until Cancel or new card config. */
+  /** User-dialed duration; persists until Cancel or setConfig. */
   @state() private _inputSeconds?: number;
-  /** Working value while the duration-picker modal is open. */
+  /** Duration being edited in the modal. */
   @state() private _modalSeconds = 0;
 
   @query('dialog') private _dialog?: HTMLDialogElement;
 
   private _tickHandle: number | undefined;
-  /** Total ms remaining at the moment we last saw the timer become active. */
+  /** Total ms remaining at baseline (when we saw the timer go active). */
   private _activeBaselineMs?: number;
-  /** Browser clock at the moment of that baseline. */
+  /** Browser clock at the baseline moment — drives the skew-free stopwatch. */
   private _baselineLocalMs?: number;
-  /** Previously observed entity state — drives skew-free baseline capture. */
   private _lastSeenState?: string;
 
   public setConfig(config: SimpleTimerCardConfig): void {
@@ -62,10 +61,7 @@ export class SimpleTimerCard extends LitElement {
   override connectedCallback(): void {
     super.connectedCallback();
     if (this._tickHandle === undefined) {
-      this._tickHandle = window.setInterval(() => {
-        this._now = Date.now();
-        this.requestUpdate();
-      }, TICK_INTERVAL_MS);
+      this._tickHandle = window.setInterval(() => this.requestUpdate(), TICK_INTERVAL_MS);
     }
   }
 
@@ -93,12 +89,12 @@ export class SimpleTimerCard extends LitElement {
         const changedMs = Date.parse(entity.last_changed);
         let totalMs: number;
         if (this._lastSeenState === undefined) {
-          // Initial mount with an already-active timer — no observed transition,
-          // so we can't avoid using the browser/server clock-skewed estimate.
+          // Initial mount with the timer already active — no observed transition,
+          // so fall back to the clock-skewed estimate. HA doesn't emit periodic
+          // updates while active, so this skew can't be resynced before pause/finish.
           totalMs = Math.max(0, finishMs - Date.now());
         } else {
-          // Observed transition: total duration computed entirely in HA's clock
-          // (skew-free) and counted down via a browser-local stopwatch.
+          // Observed transition: total computed in HA's clock (skew-free).
           totalMs = Math.max(0, finishMs - changedMs);
         }
         this._activeBaselineMs = totalMs;
@@ -113,25 +109,24 @@ export class SimpleTimerCard extends LitElement {
 
   private get _entity(): TimerEntity | undefined {
     if (!this._config || !this.hass) return undefined;
-    return this.hass.states[this._config.entity] as TimerEntity | undefined;
+    return this.hass.states[this._config.entity] as unknown as TimerEntity | undefined;
   }
 
-  /** Seconds to show in the live countdown when state is active/paused. */
   private _remainingSeconds(entity: TimerEntity): number {
     if (entity.state === 'active') {
       if (this._activeBaselineMs !== undefined && this._baselineLocalMs !== undefined) {
-        const elapsed = this._now - this._baselineLocalMs;
+        const elapsed = Date.now() - this._baselineLocalMs;
         return Math.max(0, (this._activeBaselineMs - elapsed) / 1000);
       }
       if (entity.attributes.finishes_at) {
         const endMs = Date.parse(entity.attributes.finishes_at);
-        if (!Number.isNaN(endMs)) return Math.max(0, (endMs - this._now) / 1000);
+        if (!Number.isNaN(endMs)) return Math.max(0, (endMs - Date.now()) / 1000);
       }
     }
     return parseDuration(entity.attributes.remaining);
   }
 
-  /** 0..1 progress of the timer toward completion. */
+  /** Timer progress in [0, 1]. */
   private _progressFraction(entity: TimerEntity): number {
     if (entity.state === 'idle') return 0;
     const total = parseDuration(entity.attributes.duration);
@@ -140,7 +135,7 @@ export class SimpleTimerCard extends LitElement {
     return Math.min(1, Math.max(0, (total - remaining) / total));
   }
 
-  /** Duration in seconds that Start will pass to timer.start. */
+  /** Seconds passed to timer.start when Start is clicked. */
   private _dialedSeconds(entity: TimerEntity): number {
     if (this._inputSeconds !== undefined) return this._inputSeconds;
     return parseDuration(entity.attributes.duration);
@@ -151,7 +146,8 @@ export class SimpleTimerCard extends LitElement {
     entity: TimerEntity,
     data: Record<string, unknown> = {},
   ): Promise<void> {
-    await this.hass!.callService('timer', service, { entity_id: entity.entity_id, ...data });
+    if (!this.hass) return;
+    await this.hass.callService('timer', service, { entity_id: entity.entity_id, ...data });
   }
 
   private _start(entity: TimerEntity): void {
@@ -171,12 +167,9 @@ export class SimpleTimerCard extends LitElement {
     void this._callService('cancel', entity);
   }
 
-  // --- Duration picker modal ---
-
   private _openModal(entity: TimerEntity): void {
     this._modalSeconds = this._dialedSeconds(entity);
-    // Wait one frame so the dialog template reflects the current _modalSeconds
-    // before we call showModal (which steals focus to the first input).
+    // Render first so the dialog reflects _modalSeconds before showModal grabs focus.
     this.updateComplete.then(() => this._dialog?.showModal());
   }
 
@@ -196,16 +189,14 @@ export class SimpleTimerCard extends LitElement {
     if (field === 'm59' || field === 's59') value = Math.min(59, Math.floor(value));
     else value = Math.floor(value);
 
-    let h = Math.floor(this._modalSeconds / 3600);
-    let m = Math.floor((this._modalSeconds % 3600) / 60);
-    let s = this._modalSeconds % 60;
-    if (field === 'h') h = value;
-    else if (field === 'm59') m = value;
-    else if (field === 's59') s = value;
-    this._modalSeconds = h * 3600 + m * 60 + s;
+    const { h, m, s } = splitHMS(this._modalSeconds);
+    const next = {
+      h: field === 'h' ? value : h,
+      m: field === 'm59' ? value : m,
+      s: field === 's59' ? value : s,
+    };
+    this._modalSeconds = next.h * 3600 + next.m * 60 + next.s;
   }
-
-  // --- Render ---
 
   protected override render(): TemplateResult | typeof nothing {
     if (!this._config || !this.hass) return nothing;
@@ -221,8 +212,7 @@ export class SimpleTimerCard extends LitElement {
 
     const compact = !!this._config.compact;
     const name = this._config.name ?? entity.attributes.friendly_name ?? entity.entity_id;
-    const iconName =
-      this._config.icon ?? (entity.attributes.icon as string | undefined) ?? DEFAULT_ICON;
+    const iconName = this._config.icon ?? entity.attributes.icon ?? DEFAULT_ICON;
     const stateLabel = STATE_LABELS[entity.state] ?? entity.state;
     const isIdle = entity.state === 'idle';
     const displaySeconds = isIdle ? this._dialedSeconds(entity) : this._remainingSeconds(entity);
@@ -262,20 +252,17 @@ export class SimpleTimerCard extends LitElement {
           <div class="state" data-state=${entity.state} aria-live="polite">${stateLabel}</div>
           <div class="actions">${this._renderActions(entity)}</div>
         </div>
-        <div class="progress" style="--progress: ${progress}"></div>
+        <div class="progress" style=${styleMap({ '--progress': String(progress) })}></div>
       </ha-card>
       ${this._renderModal()}
     `;
   }
 
   private _renderModal(): TemplateResult {
-    const total = this._modalSeconds;
-    const h = Math.floor(total / 3600);
-    const m = Math.floor((total % 3600) / 60);
-    const s = total % 60;
+    const { h, m, s } = splitHMS(this._modalSeconds);
     const pad = (n: number) => n.toString().padStart(2, '0');
     return html`
-      <dialog class="modal" @close=${() => { /* allow Esc to dismiss */ }}>
+      <dialog class="modal">
         <div class="modal-content">
           <div class="modal-title">Set duration</div>
           <div class="modal-inputs">
@@ -343,8 +330,6 @@ export class SimpleTimerCard extends LitElement {
             Cancel
           </button>
         `;
-      default:
-        return html``;
     }
   }
 
@@ -600,7 +585,6 @@ window.customCards.push({
   preview: true,
 });
 
-// eslint-disable-next-line no-console
 console.info(
   `%c SIMPLE-TIMER-CARD %c v${VERSION} `,
   'color:white;background:#03a9f4;font-weight:bold;',

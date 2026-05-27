@@ -12,10 +12,9 @@ export interface TimerEntityAttributes {
   finishes_at?: string;
   friendly_name?: string;
   icon?: string;
-  [key: string]: unknown;
 }
 
-export interface TimerEntity extends HassEntity {
+export interface TimerEntity extends Omit<HassEntity, 'state' | 'attributes'> {
   state: 'idle' | 'active' | 'paused';
   attributes: TimerEntityAttributes;
 }
@@ -37,16 +36,4 @@ export interface SimpleTimerCardConfig {
   name?: string;
   icon?: string;
   compact?: boolean;
-}
-
-declare global {
-  interface Window {
-    customCards?: Array<{
-      type: string;
-      name: string;
-      description?: string;
-      preview?: boolean;
-      documentationURL?: string;
-    }>;
-  }
 }
