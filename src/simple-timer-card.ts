@@ -38,6 +38,17 @@ export class SimpleTimerCard extends LitElement {
     if (!config?.entity || !config.entity.startsWith('timer.')) {
       throw new Error('simple-timer-card: "entity" must be set to a timer.* entity');
     }
+    if (config.name !== undefined && typeof config.name !== 'string') {
+      throw new Error('simple-timer-card: "name" must be a string');
+    }
+    if (config.icon !== undefined && typeof config.icon !== 'string') {
+      throw new Error('simple-timer-card: "icon" must be a string');
+    }
+    for (const key of ['compact', 'hide_name', 'hide_icon', 'hide_state'] as const) {
+      if (config[key] !== undefined && typeof config[key] !== 'boolean') {
+        throw new Error(`simple-timer-card: "${key}" must be a boolean`);
+      }
+    }
     this._config = config;
     this._inputSeconds = undefined;
   }
@@ -211,6 +222,10 @@ export class SimpleTimerCard extends LitElement {
     }
 
     const compact = !!this._config.compact;
+    const hideName = !!this._config.hide_name;
+    const hideIcon = !!this._config.hide_icon;
+    const hideState = !!this._config.hide_state;
+    const showHeader = !hideName || !hideIcon;
     const name = this._config.name ?? entity.attributes.friendly_name ?? entity.entity_id;
     const iconName = this._config.icon ?? entity.attributes.icon ?? DEFAULT_ICON;
     const stateLabel = STATE_LABELS[entity.state] ?? entity.state;
@@ -223,10 +238,14 @@ export class SimpleTimerCard extends LitElement {
     return html`
       <ha-card>
         <div class="content" data-compact=${compact ? 'true' : 'false'}>
-          <div class="header">
-            <ha-icon class="icon" .icon=${iconName}></ha-icon>
-            <span class="name">${name}</span>
-          </div>
+          ${showHeader
+            ? html`
+                <div class="header">
+                  ${hideIcon ? nothing : html`<ha-icon class="icon" .icon=${iconName}></ha-icon>`}
+                  ${hideName ? nothing : html`<span class="name">${name}</span>`}
+                </div>
+              `
+            : nothing}
           ${isIdle
             ? html`
                 <button
@@ -249,7 +268,9 @@ export class SimpleTimerCard extends LitElement {
                   ${formatDuration(displaySeconds)}
                 </div>
               `}
-          <div class="state" data-state=${entity.state} aria-live="polite">${stateLabel}</div>
+          ${hideState
+            ? nothing
+            : html`<div class="state" data-state=${entity.state} aria-live="polite">${stateLabel}</div>`}
           <div class="actions">${this._renderActions(entity)}</div>
         </div>
         <div class="progress" style=${styleMap({ '--progress': String(progress) })}></div>
@@ -342,11 +363,11 @@ export class SimpleTimerCard extends LitElement {
       overflow: hidden;
     }
     .content {
-      padding: 20px 16px;
+      padding: 16px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 10px;
+      gap: 6px;
     }
 
     .header {
@@ -369,12 +390,9 @@ export class SimpleTimerCard extends LitElement {
       font-weight: 300;
       font-variant-numeric: tabular-nums;
       color: var(--primary-text-color);
-      line-height: 1.1;
+      line-height: 1;
       letter-spacing: -0.02em;
-      display: flex;
-      align-items: baseline;
-      justify-content: center;
-      min-height: 3.3rem;
+      padding: 4px 12px;
     }
     .time[data-state='paused'] {
       color: var(--secondary-text-color);
@@ -402,7 +420,6 @@ export class SimpleTimerCard extends LitElement {
       color: inherit;
       background: transparent;
       border: none;
-      padding: 0 12px;
       border-radius: 8px;
       cursor: pointer;
       transition: background-color 0.15s ease;
@@ -495,7 +512,7 @@ export class SimpleTimerCard extends LitElement {
     }
     .content[data-compact='true'] .time {
       font-size: 1.75rem;
-      min-height: 1.9rem;
+      padding: 2px 10px;
     }
     .content[data-compact='true'] .btn {
       padding: 6px 12px;

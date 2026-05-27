@@ -13,6 +13,9 @@ const SCHEMA: HaFormSchemaItem[] = [
   { name: 'name', selector: { text: {} } },
   { name: 'icon', selector: { icon: {} } },
   { name: 'compact', selector: { boolean: {} } },
+  { name: 'hide_icon', selector: { boolean: {} } },
+  { name: 'hide_name', selector: { boolean: {} } },
+  { name: 'hide_state', selector: { boolean: {} } },
 ];
 
 const LABELS: Record<string, string> = {
@@ -20,6 +23,9 @@ const LABELS: Record<string, string> = {
   name: 'Name',
   icon: 'Icon',
   compact: 'Compact layout',
+  hide_icon: 'Hide icon',
+  hide_name: 'Hide name',
+  hide_state: 'Hide state label',
 };
 
 @customElement('simple-timer-card-editor')
@@ -56,7 +62,9 @@ export class SimpleTimerCardEditor extends LitElement {
       const v = raw[key];
       if (v === undefined || v === null || v === '') delete raw[key];
     }
-    if (!raw.compact) delete raw.compact;
+    for (const key of ['compact', 'hide_icon', 'hide_name', 'hide_state'] as const) {
+      if (!raw[key]) delete raw[key];
+    }
 
     this.dispatchEvent(
       new CustomEvent('config-changed', {

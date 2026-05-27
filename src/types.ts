@@ -36,4 +36,7 @@ export interface SimpleTimerCardConfig {
   name?: string;
   icon?: string;
   compact?: boolean;
+  hide_name?: boolean;
+  hide_icon?: boolean;
+  hide_state?: boolean;
 }
