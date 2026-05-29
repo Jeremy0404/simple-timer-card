@@ -3,7 +3,9 @@ import { copyFile, mkdir } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const DEPLOY_DEST = '//192.168.1.177/config/www/community/simple-timer-card';
+// Kept separate from the HACS-managed `simple-timer-card/` folder so HACS's
+// pre-gzipped assets don't shadow our fresh dev builds.
+const DEPLOY_DEST = '//192.168.1.177/config/www/community/simple-timer-card-dev';
 const BUNDLE_NAME = 'simple-timer-card.js';
 const LOADER_NAME = 'simple-timer-card-loader.js';
 
@@ -29,6 +31,9 @@ export default defineConfig(({ mode }) => {
   return {
     define: {
       __BUNDLE_VERSION__: JSON.stringify(isDevDeploy ? 'dev' : pkg.version),
+      // Dev builds register under <simple-timer-card-dev> so they coexist with
+      // a HACS-installed production build on the same dashboard.
+      __CARD_NAME_SUFFIX__: JSON.stringify(isDevDeploy ? '-dev' : ''),
     },
     build: {
       lib: {

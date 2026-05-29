@@ -1,13 +1,13 @@
 import { LitElement, html, css, nothing, type PropertyValues, type TemplateResult } from 'lit';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import { styleMap } from 'lit/directives/style-map.js';
-import type { HomeAssistant, SimpleTimerCardConfig, TimerEntity } from './types.js';
+import type { HomeAssistant, SimpleTimerCardConfig, TapAction, TimerEntity } from './types.js';
 import { formatDuration, parseDuration, splitHMS, toServiceDuration } from './utils.js';
 import './simple-timer-card-editor.js';
 
 const VERSION = '0.1.0';
 const TICK_INTERVAL_MS = 250;
-const WARN_THRESHOLD_SECONDS = 10;
+const DEFAULT_WARN_THRESHOLD_SECONDS = 10;
 const DEFAULT_ICON = 'mdi:timer-outline';
 
 const STATE_LABELS: Record<TimerEntity['state'], string> = {
@@ -16,7 +16,7 @@ const STATE_LABELS: Record<TimerEntity['state'], string> = {
   paused: 'Paused',
 };
 
-@customElement('simple-timer-card')
+@customElement(`simple-timer-card${__CARD_NAME_SUFFIX__}`)
 export class SimpleTimerCard extends LitElement {
   @property({ attribute: false }) hass?: HomeAssistant;
   @state() private _config?: SimpleTimerCardConfig;
@@ -44,17 +44,100 @@ export class SimpleTimerCard extends LitElement {
     if (config.icon !== undefined && typeof config.icon !== 'string') {
       throw new Error('simple-timer-card: "icon" must be a string');
     }
-    for (const key of ['compact', 'hide_name', 'hide_icon', 'hide_state'] as const) {
+    for (const key of [
+      'compact',
+      'hide_name',
+      'hide_icon',
+      'hide_state',
+      'show_progress',
+    ] as const) {
       if (config[key] !== undefined && typeof config[key] !== 'boolean') {
         throw new Error(`simple-timer-card: "${key}" must be a boolean`);
       }
     }
+    if (config.color !== undefined && typeof config.color !== 'string') {
+      throw new Error('simple-timer-card: "color" must be a string');
+    }
+    if (config.warn_threshold_seconds !== undefined) {
+      if (
+        typeof config.warn_threshold_seconds !== 'number' ||
+        config.warn_threshold_seconds < 0
+      ) {
+        throw new Error('simple-timer-card: "warn_threshold_seconds" must be a non-negative number');
+      }
+    }
+    if (
+      config.tap_action !== undefined &&
+      (typeof config.tap_action !== 'object' || config.tap_action === null)
+    ) {
+      throw new Error('simple-timer-card: "tap_action" must be an object');
+    }
     this._config = config;
     this._inputSeconds = undefined;
+    this._applyColor();
+  }
+
+  private _applyColor(): void {
+    const color = this._config?.color;
+    if (color) {
+      this.style.setProperty('--primary-color', color);
+      this.style.setProperty('--success-color', color);
+    } else {
+      this.style.removeProperty('--primary-color');
+      this.style.removeProperty('--success-color');
+    }
   }
 
   public getCardSize(): number {
-    return this._config?.compact ? 1 : 2;
+    return this._config?.compact ? 2 : 3;
+  }
+
+  /**
+   * Defaults for HA's sections view. 6×3 is half-width and medium-tall —
+   * matches the visual weight of built-in tile/light/thermostat cards.
+   * `min_rows: 2` lets users drag down to a compact 2-row size once they've
+   * hidden the name/icon/state (otherwise the content gets cramped at 2 rows).
+   */
+  /**
+   * Defaults for HA's sections view. Rows are locked at 3 (min === max) because
+   * the in-cell visual doesn't reliably grow with the slider in current HA
+   * versions — locking avoids a slider that lies. Width stays resizable 3–12.
+   */
+  public static getGridOptions(): {
+    columns?: number | 'full';
+    rows?: number | 'auto';
+    min_columns?: number;
+    min_rows?: number;
+    max_columns?: number;
+    max_rows?: number;
+  } {
+    return {
+      columns: 6,
+      rows: 3,
+      min_columns: 3,
+      min_rows: 3,
+      max_columns: 12,
+      max_rows: 3,
+    };
+  }
+
+  /** Older layout-options API used by some HA versions. Same numbers, prefixed names. */
+  public static getLayoutOptions(): {
+    grid_columns?: number;
+    grid_rows?: number | 'auto';
+    grid_min_columns?: number;
+    grid_min_rows?: number;
+    grid_max_columns?: number;
+    grid_max_rows?: number;
+  } {
+    return {
+      grid_columns: 6,
+      grid_rows: 3,
+      grid_min_columns: 3,
+      grid_min_rows: 3,
+      grid_max_columns: 12,
+      grid_max_rows: 3,
+    };
   }
 
   public static getStubConfig(
@@ -66,7 +149,7 @@ export class SimpleTimerCard extends LitElement {
   }
 
   public static getConfigElement(): HTMLElement {
-    return document.createElement('simple-timer-card-editor');
+    return document.createElement(`simple-timer-card-editor${__CARD_NAME_SUFFIX__}`);
   }
 
   override connectedCallback(): void {
@@ -178,6 +261,54 @@ export class SimpleTimerCard extends LitElement {
     void this._callService('cancel', entity);
   }
 
+  private _onTimeClick(entity: TimerEntity): void {
+    const tap = this._config?.tap_action;
+    const action = tap?.action ?? 'modal';
+    switch (action) {
+      case 'modal':
+      case 'default':
+        this._openModal(entity);
+        return;
+      case 'none':
+        return;
+      case 'more-info':
+        this._fireMoreInfo(tap?.entity ?? entity.entity_id);
+        return;
+      case 'navigate':
+        if (tap?.navigation_path) {
+          history.pushState(null, '', tap.navigation_path);
+          window.dispatchEvent(new Event('location-changed'));
+        }
+        return;
+      case 'url':
+        if (tap?.url_path) window.open(tap.url_path, '_blank', 'noopener,noreferrer');
+        return;
+      case 'call-service':
+      case 'perform-action':
+        if (tap?.service && this.hass) {
+          const [domain, service] = tap.service.split('.');
+          if (domain && service) {
+            void this.hass.callService(domain, service, tap.service_data ?? {}, tap.target);
+          }
+        }
+        return;
+    }
+  }
+
+  private _fireMoreInfo(entityId: string): void {
+    this.dispatchEvent(
+      new CustomEvent('hass-more-info', {
+        detail: { entityId },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
+  private _isInteractive(tap: TapAction | undefined): boolean {
+    return (tap?.action ?? 'modal') !== 'none';
+  }
+
   private _openModal(entity: TimerEntity): void {
     this._modalSeconds = this._dialedSeconds(entity);
     // Render first so the dialog reflects _modalSeconds before showModal grabs focus.
@@ -225,15 +356,23 @@ export class SimpleTimerCard extends LitElement {
     const hideName = !!this._config.hide_name;
     const hideIcon = !!this._config.hide_icon;
     const hideState = !!this._config.hide_state;
+    const showProgress = this._config.show_progress !== false;
     const showHeader = !hideName || !hideIcon;
     const name = this._config.name ?? entity.attributes.friendly_name ?? entity.entity_id;
     const iconName = this._config.icon ?? entity.attributes.icon ?? DEFAULT_ICON;
     const stateLabel = STATE_LABELS[entity.state] ?? entity.state;
     const isIdle = entity.state === 'idle';
     const displaySeconds = isIdle ? this._dialedSeconds(entity) : this._remainingSeconds(entity);
+    const warnThreshold = this._config.warn_threshold_seconds ?? DEFAULT_WARN_THRESHOLD_SECONDS;
     const warn =
-      entity.state === 'active' && displaySeconds > 0 && displaySeconds <= WARN_THRESHOLD_SECONDS;
+      warnThreshold > 0 &&
+      entity.state === 'active' &&
+      displaySeconds > 0 &&
+      displaySeconds <= warnThreshold;
     const progress = this._progressFraction(entity);
+    const tap = this._config.tap_action;
+    const interactive = this._isInteractive(tap);
+    const tapTitle = (tap?.action ?? 'modal') === 'modal' ? 'Click to set duration' : '';
 
     return html`
       <ha-card>
@@ -252,9 +391,10 @@ export class SimpleTimerCard extends LitElement {
                   type="button"
                   class="time time-clickable"
                   data-state="idle"
-                  @click=${() => this._openModal(entity)}
-                  aria-label="Edit duration"
-                  title="Click to set duration"
+                  data-interactive=${interactive ? 'true' : 'false'}
+                  @click=${interactive ? () => this._onTimeClick(entity) : undefined}
+                  aria-label="Timer time"
+                  title=${tapTitle}
                 >
                   ${formatDuration(displaySeconds)}
                 </button>
@@ -273,7 +413,9 @@ export class SimpleTimerCard extends LitElement {
             : html`<div class="state" data-state=${entity.state} aria-live="polite">${stateLabel}</div>`}
           <div class="actions">${this._renderActions(entity)}</div>
         </div>
-        <div class="progress" style=${styleMap({ '--progress': String(progress) })}></div>
+        ${showProgress
+          ? html`<div class="progress" style=${styleMap({ '--progress': String(progress) })}></div>`
+          : nothing}
       </ha-card>
       ${this._renderModal()}
     `;
@@ -357,16 +499,23 @@ export class SimpleTimerCard extends LitElement {
   static override styles = css`
     :host {
       display: block;
+      height: 100%;
     }
     ha-card {
       position: relative;
       overflow: hidden;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      box-sizing: border-box;
     }
     .content {
+      flex: 1;
       padding: 16px;
       display: flex;
       flex-direction: column;
       align-items: center;
+      justify-content: center;
       gap: 6px;
     }
 
@@ -430,6 +579,15 @@ export class SimpleTimerCard extends LitElement {
     .time-clickable:focus-visible {
       outline: 2px solid var(--primary-color);
       outline-offset: 2px;
+    }
+    .time-clickable[data-interactive='false'] {
+      cursor: default;
+    }
+    .time-clickable[data-interactive='false']:hover {
+      background: transparent;
+    }
+    .time-clickable[data-interactive='false']:focus-visible {
+      outline: none;
     }
 
     .state {
@@ -594,16 +752,20 @@ declare global {
   }
 }
 
+const CARD_TYPE = `simple-timer-card${__CARD_NAME_SUFFIX__}`;
+const CARD_LABEL = __CARD_NAME_SUFFIX__ ? 'Simple Timer (Dev)' : 'Simple Timer';
+const BANNER_COLOR = __CARD_NAME_SUFFIX__ ? '#9c27b0' : '#03a9f4';
+
 window.customCards = window.customCards ?? [];
 window.customCards.push({
-  type: 'simple-timer-card',
-  name: 'Simple Timer',
+  type: CARD_TYPE,
+  name: CARD_LABEL,
   description: 'A simple card to view and control a Home Assistant timer.',
   preview: true,
 });
 
 console.info(
-  `%c SIMPLE-TIMER-CARD %c v${VERSION} `,
-  'color:white;background:#03a9f4;font-weight:bold;',
-  'color:#03a9f4;background:white;font-weight:bold;',
+  `%c SIMPLE-TIMER-CARD${__CARD_NAME_SUFFIX__.toUpperCase()} %c v${VERSION} `,
+  `color:white;background:${BANNER_COLOR};font-weight:bold;`,
+  `color:${BANNER_COLOR};background:white;font-weight:bold;`,
 );
