@@ -636,10 +636,21 @@ export class SimpleTimerCard extends LitElement {
       filter: brightness(1.05);
     }
 
+    /*
+     * Pinned to the bottom edge rather than living in the flex column. As a flex
+     * child it competed for vertical space with .content; when non-compact content
+     * overflowed the locked-height card, the bar got clipped by ha-card's
+     * overflow:hidden (and only reappeared in compact mode). Absolute positioning
+     * makes its thickness independent of content height. The card's bottom padding
+     * (>= bar height) keeps it clear of the buttons.
+     */
     .progress {
-      height: 3px;
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 4px;
       background: var(--divider-color, rgba(127, 127, 127, 0.15));
-      position: relative;
       overflow: hidden;
     }
     .progress::after {
