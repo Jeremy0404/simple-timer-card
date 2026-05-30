@@ -26,6 +26,12 @@ export function toServiceDuration(totalSeconds: number): string {
   return `${pad(h)}:${pad(m)}:${pad(s)}`;
 }
 
+/** Format a signed seconds delta as ±HH:MM:SS — the shape timer.change expects. */
+export function toAdjustDuration(deltaSeconds: number): string {
+  const sign = deltaSeconds < 0 ? '-' : '';
+  return `${sign}${toServiceDuration(Math.abs(deltaSeconds))}`;
+}
+
 /** Split a non-negative seconds count into hours/minutes/seconds. */
 export function splitHMS(totalSeconds: number): { h: number; m: number; s: number } {
   const t = Math.max(0, Math.floor(totalSeconds));

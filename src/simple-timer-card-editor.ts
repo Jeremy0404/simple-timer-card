@@ -27,6 +27,11 @@ const SCHEMA: HaFormSchemaItem[] = [
     name: 'warn_threshold_seconds',
     selector: { number: { min: 0, mode: 'box', unit_of_measurement: 's' } },
   },
+  { name: 'adjust', selector: { boolean: {} }, default: false },
+  {
+    name: 'adjust_step',
+    selector: { number: { min: 1, mode: 'box', unit_of_measurement: 's' } },
+  },
   {
     name: 'interactions',
     type: 'expandable',
@@ -51,6 +56,8 @@ const LABELS: Record<string, string> = {
   hide_name: 'Hide name',
   hide_state: 'Hide state label',
   warn_threshold_seconds: 'Warning threshold (0 disables)',
+  adjust: 'Show ± adjust buttons (running)',
+  adjust_step: 'Adjust step (seconds, default 60)',
   interactions: 'Tap actions',
   tap_action: 'Tap action on time',
   hold_action: 'Hold action on time',
@@ -99,11 +106,12 @@ export class SimpleTimerCardEditor extends LitElement {
       'hide_name',
       'hide_state',
       'show_progress',
+      'adjust',
     ] as const) {
       if (raw[key] === undefined || raw[key] === null) delete raw[key];
     }
-    if (raw.warn_threshold_seconds === undefined || raw.warn_threshold_seconds === null) {
-      delete raw.warn_threshold_seconds;
+    for (const key of ['warn_threshold_seconds', 'adjust_step'] as const) {
+      if (raw[key] === undefined || raw[key] === null) delete raw[key];
     }
     // Drop untouched actions; preserve an explicit 'none' (a deliberate read-only choice).
     for (const key of ['tap_action', 'hold_action', 'double_tap_action'] as const) {

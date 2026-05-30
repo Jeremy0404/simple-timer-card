@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   existing `tap_action` shape. Both default to doing nothing.
 - New `reset-duration` action value that clears a dialed-in duration, reverting
   the display to the helper's stored `duration` (e.g. `hold_action: { action: reset-duration }`).
+- `adjust` (with optional `adjust_step`, default 60 s) shows − / + buttons that
+  extend or trim a running timer in place via `timer.change`. Active-only, with
+  the − button disabled below one step, and hidden when the core lacks
+  `timer.change`.
 
 ### Changed
 
