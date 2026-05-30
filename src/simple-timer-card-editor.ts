@@ -7,7 +7,6 @@ interface HaFormSchemaItem {
   required?: boolean;
   default?: unknown;
   selector?: Record<string, unknown>;
-  /** 'expandable' for a collapsible group; otherwise a leaf field. */
   type?: string;
   title?: string;
   icon?: string;

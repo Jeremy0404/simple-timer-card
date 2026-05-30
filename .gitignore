@@ -12,4 +12,5 @@ yarn-error.log*
 .vscode/*
 .idea/*
 .claude/*
+CLAUDE.md
 docs/*
