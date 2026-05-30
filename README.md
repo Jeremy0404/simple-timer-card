@@ -16,7 +16,9 @@ A clean, minimal Lovelace card for Home Assistant `timer` helpers. View the coun
 - Start, Pause, Resume, Cancel controls
 - Smooth live countdown with a progress bar
 - End-of-timer warning pulse below 10 seconds
+- Tap, hold, and double-tap actions on the time — more-info, navigate, call a service, reset the dialed duration, and more
 - Theme-aware — uses HA's CSS variables, looks native in any theme
+- State labels (`Idle` / `Running` / `Paused`) follow your Home Assistant language
 - Compact mode for stacking several timers on one dashboard
 - Icon and name overrides
 - Visual editor — no YAML required to add the card
@@ -81,7 +83,9 @@ compact: false
 | `hide_name`               | `boolean` | `false`                                | Hide the name. (If both icon and name are hidden, the header row disappears.)                                                        |
 | `hide_state`              | `boolean` | `false`                                | Hide the state label (`Idle` / `Running` / `Paused`).                                                                                |
 | `warn_threshold_seconds`  | `number`  | `10`                                   | Seconds below which the countdown turns warning-color and pulses. `0` disables the warning.                                          |
-| `tap_action`              | `object`  | open duration modal                    | Standard HA action object. Supported actions: `more-info`, `navigate`, `url`, `call-service`, `none`. Omit for the default modal.    |
+| `tap_action`              | `object`  | open duration modal                    | Action when the time is tapped. Standard HA action object. Supported actions: `more-info`, `navigate`, `url`, `call-service`, `none`, plus `reset-duration`. Omit for the default modal.    |
+| `hold_action`             | `object`  | none                                   | Action when the time is pressed and held (~0.5 s). Same shape as `tap_action`. Does nothing unless set.                              |
+| `double_tap_action`       | `object`  | none                                   | Action when the time is double-tapped (~0.25 s window). Same shape as `tap_action`. Does nothing unless set.                         |
 
 ### `tap_action` recipes
 
@@ -115,6 +119,31 @@ Jump to another dashboard:
 tap_action:
   action: navigate
   navigation_path: /lovelace/timers
+```
+
+### Hold & double-tap
+
+`hold_action` and `double_tap_action` take the same action object as `tap_action`
+and both default to doing nothing. Hold is a ~0.5 s press; double-tap is two taps
+within ~0.25 s. (When a `double_tap_action` is set, a single tap waits out that
+window before firing.)
+
+```yaml
+tap_action:
+  action: none           # read-only at a tap…
+hold_action:
+  action: more-info      # …but hold opens the details popup
+```
+
+### Reset the dialed duration
+
+`reset-duration` clears a duration you dialed in via the modal, reverting the
+display to the helper's stored `duration`. It's a card action value (not in the
+visual editor's action dropdown), so set it in YAML — typically on hold:
+
+```yaml
+hold_action:
+  action: reset-duration
 ```
 
 ### Example using everything
