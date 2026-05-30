@@ -3,6 +3,7 @@ import { customElement, property, state, query } from 'lit/decorators.js';
 import { styleMap } from 'lit/directives/style-map.js';
 import type { HomeAssistant, SimpleTimerCardConfig, TapAction, TimerEntity } from './types.js';
 import {
+  dayOffset,
   formatDuration,
   parseDuration,
   splitHMS,
@@ -75,6 +76,7 @@ export class SimpleTimerCard extends LitElement {
       'hide_icon',
       'hide_state',
       'show_progress',
+      'show_finish_time',
       'adjust',
     ] as const) {
       if (config[key] !== undefined && typeof config[key] !== 'boolean') {
@@ -386,6 +388,21 @@ export class SimpleTimerCard extends LitElement {
     return translated && translated.trim() ? translated : (FALLBACK_STATE_LABELS[state] ?? state);
   }
 
+  /** Wall-clock time the timer ends, e.g. `14:35` (with a `+1d` suffix if it spills past midnight). */
+  private _finishTimeLabel(entity: TimerEntity): string | undefined {
+    if (entity.state !== 'active' && entity.state !== 'paused') return undefined;
+    // Derive from the live remaining rather than `finishes_at`: this keeps it
+    // consistent with the skew-free countdown, and a paused timer's finish time
+    // shifts forward each tick (the timer is frozen, the wall clock isn't).
+    const finishMs = Date.now() + this._remainingSeconds(entity) * 1000;
+    const clock = new Intl.DateTimeFormat(this.hass?.language, {
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(finishMs);
+    const days = dayOffset(Date.now(), finishMs);
+    return days > 0 ? `${clock} +${days}d` : clock;
+  }
+
   private _openModal(entity: TimerEntity): void {
     this._modalSeconds = this._dialedSeconds(entity);
     // Render first so the dialog reflects _modalSeconds before showModal grabs focus.
@@ -432,7 +449,6 @@ export class SimpleTimerCard extends LitElement {
     const compact = !!this._config.compact;
     const hideName = !!this._config.hide_name;
     const hideIcon = !!this._config.hide_icon;
-    const hideState = !!this._config.hide_state;
     const showProgress = this._config.show_progress !== false;
     const showHeader = !hideName || !hideIcon;
     const name = this._config.name ?? entity.attributes.friendly_name ?? entity.entity_id;
@@ -485,9 +501,7 @@ export class SimpleTimerCard extends LitElement {
                 </div>
               `
             : timeDisplay}
-          ${hideState
-            ? nothing
-            : html`<div class="state" data-state=${entity.state} aria-live="polite">${stateLabel}</div>`}
+          ${this._renderStateLine(entity, stateLabel)}
           <div class="actions">${this._renderActions(entity)}</div>
         </div>
         ${showProgress
@@ -528,6 +542,25 @@ export class SimpleTimerCard extends LitElement {
     return html`
       <div class="time" data-state=${entity.state} data-warn=${warn ? 'true' : 'false'}>
         ${formatDuration(displaySeconds)}
+      </div>
+    `;
+  }
+
+  private _renderStateLine(
+    entity: TimerEntity,
+    stateLabel: string,
+  ): TemplateResult | typeof nothing {
+    const finish = this._config?.show_finish_time ? this._finishTimeLabel(entity) : undefined;
+    if (this._config?.hide_state) {
+      return finish === undefined
+        ? nothing
+        : html`<div class="finish-time" aria-live="polite">ends ${finish}</div>`;
+    }
+    return html`
+      <div class="state" data-state=${entity.state} aria-live="polite">
+        ${stateLabel}${finish === undefined
+          ? nothing
+          : html`<span class="finish"> · ends ${finish}</span>`}
       </div>
     `;
   }
@@ -741,6 +774,14 @@ export class SimpleTimerCard extends LitElement {
     }
     .state[data-state='active'] {
       color: var(--success-color, var(--primary-color));
+    }
+    .state .finish {
+      text-transform: none;
+      letter-spacing: normal;
+    }
+    .finish-time {
+      color: var(--secondary-text-color);
+      font-size: 0.75rem;
     }
 
     .actions {

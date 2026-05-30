@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
+  dayOffset,
   formatDuration,
   parseDuration,
   splitHMS,
@@ -101,6 +102,27 @@ describe('toAdjustDuration', () => {
   test('floors fractional deltas', () => {
     expect(toAdjustDuration(30.9)).toBe('00:00:30');
     expect(toAdjustDuration(-30.9)).toBe('-00:00:30');
+  });
+});
+
+describe('dayOffset', () => {
+  const at = (y: number, mo: number, d: number, h: number, mi: number) =>
+    new Date(y, mo, d, h, mi).getTime();
+
+  test('is 0 within the same calendar day', () => {
+    expect(dayOffset(at(2026, 0, 1, 0, 0), at(2026, 0, 1, 23, 59))).toBe(0);
+  });
+
+  test('is 1 when the finish lands on the next day', () => {
+    expect(dayOffset(at(2026, 0, 1, 23, 30), at(2026, 0, 2, 0, 30))).toBe(1);
+  });
+
+  test('counts multiple days, including across a month boundary', () => {
+    expect(dayOffset(at(2026, 0, 31, 12, 0), at(2026, 1, 2, 12, 0))).toBe(2);
+  });
+
+  test('is negative when the target precedes the source', () => {
+    expect(dayOffset(at(2026, 0, 2, 0, 30), at(2026, 0, 1, 23, 30))).toBe(-1);
   });
 });
 

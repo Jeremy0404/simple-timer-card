@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `+` is disabled until a full step has elapsed (Home Assistant rejects extending
   a timer beyond its original duration) and hidden when the core lacks
   `timer.change`.
+- `show_finish_time` appends the wall-clock finish time to the state row (e.g.
+  `Running · ends 14:35`), with a `+1d` marker when it crosses midnight.
 
 ### Changed
 

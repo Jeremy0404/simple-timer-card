@@ -17,6 +17,7 @@ A clean, minimal Lovelace card for Home Assistant `timer` helpers. View the coun
 - Smooth live countdown with a progress bar
 - End-of-timer warning pulse below 10 seconds
 - Optional + button to add time back to a running timer without restarting it
+- Optional finish time on the state row (e.g. `ends 14:35`)
 - Tap, hold, and double-tap actions on the time — more-info, navigate, call a service, reset the dialed duration, and more
 - Theme-aware — uses HA's CSS variables, looks native in any theme
 - State labels (`Idle` / `Running` / `Paused`) follow your Home Assistant language
@@ -80,6 +81,7 @@ compact: false
 | `color`                   | `string`  | —                                      | CSS color used as the accent (primary buttons, progress bar, active state, focus rings). Any CSS color: `#e91e63`, `tomato`, `rgb(…)`. |
 | `compact`                 | `boolean` | `false`                                | Denser layout — smaller padding, time, and buttons.                                                                                  |
 | `show_progress`           | `boolean` | `true`                                 | Show the thin progress bar at the bottom of the card.                                                                                |
+| `show_finish_time`        | `boolean` | `false`                                | Show the wall-clock time the timer ends (e.g. `Running · ends 14:35`). Appears on the state row while running or paused; rides its own line when `hide_state` is set. Crossing midnight adds a `+1d` marker. |
 | `hide_icon`               | `boolean` | `false`                                | Hide the icon.                                                                                                                       |
 | `hide_name`               | `boolean` | `false`                                | Hide the name. (If both icon and name are hidden, the header row disappears.)                                                        |
 | `hide_state`              | `boolean` | `false`                                | Hide the state label (`Idle` / `Running` / `Paused`).                                                                                |
@@ -183,6 +185,7 @@ hide_state: true
 warn_threshold_seconds: 5
 adjust: true
 adjust_step: 30
+show_finish_time: true
 tap_action:
   action: more-info
 ```
