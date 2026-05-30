@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `hold_action` and `double_tap_action` on the time element, mirroring the
+  existing `tap_action` shape. Both default to doing nothing.
+- New `reset-duration` action value that clears a dialed-in duration, reverting
+  the display to the helper's stored `duration` (e.g. `hold_action: { action: reset-duration }`).
+
+### Changed
+
+- State labels (`Idle` / `Running` / `Paused`) are now localized via Home
+  Assistant's translations, falling back to English.
+- The time element is now interactive in every state when a tap/hold/double-tap
+  action is configured (previously the configured tap only applied while idle).
+
+### Fixed
+
+- Console banner now reports the actual bundle version instead of a hardcoded one.
+
 ## [0.2.0] — 2026-05-29
 
 ### Added

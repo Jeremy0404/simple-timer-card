@@ -6,7 +6,12 @@ interface HaFormSchemaItem {
   name: string;
   required?: boolean;
   default?: unknown;
-  selector: Record<string, unknown>;
+  selector?: Record<string, unknown>;
+  /** 'expandable' for a collapsible group; otherwise a leaf field. */
+  type?: string;
+  title?: string;
+  icon?: string;
+  schema?: HaFormSchemaItem[];
 }
 
 const SCHEMA: HaFormSchemaItem[] = [
@@ -23,7 +28,17 @@ const SCHEMA: HaFormSchemaItem[] = [
     name: 'warn_threshold_seconds',
     selector: { number: { min: 0, mode: 'box', unit_of_measurement: 's' } },
   },
-  { name: 'tap_action', selector: { ui_action: {} } },
+  {
+    name: 'interactions',
+    type: 'expandable',
+    title: 'Tap actions',
+    icon: 'mdi:gesture-tap',
+    schema: [
+      { name: 'tap_action', selector: { ui_action: {} } },
+      { name: 'hold_action', selector: { ui_action: {} } },
+      { name: 'double_tap_action', selector: { ui_action: {} } },
+    ],
+  },
 ];
 
 const LABELS: Record<string, string> = {
@@ -37,7 +52,10 @@ const LABELS: Record<string, string> = {
   hide_name: 'Hide name',
   hide_state: 'Hide state label',
   warn_threshold_seconds: 'Warning threshold (0 disables)',
+  interactions: 'Tap actions',
   tap_action: 'Tap action on time',
+  hold_action: 'Hold action on time',
+  double_tap_action: 'Double-tap action on time',
 };
 
 @customElement(`simple-timer-card-editor${__CARD_NAME_SUFFIX__}`)
@@ -88,9 +106,12 @@ export class SimpleTimerCardEditor extends LitElement {
     if (raw.warn_threshold_seconds === undefined || raw.warn_threshold_seconds === null) {
       delete raw.warn_threshold_seconds;
     }
-    const tap = raw.tap_action as { action?: string } | undefined;
-    if (!tap || tap.action === undefined || tap.action === 'default') {
-      delete raw.tap_action;
+    // Drop untouched actions; preserve an explicit 'none' (a deliberate read-only choice).
+    for (const key of ['tap_action', 'hold_action', 'double_tap_action'] as const) {
+      const a = raw[key] as { action?: string } | undefined;
+      if (!a || a.action === undefined || a.action === 'default') {
+        delete raw[key];
+      }
     }
 
     this.dispatchEvent(

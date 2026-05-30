@@ -5,11 +5,16 @@ import type { HomeAssistant, SimpleTimerCardConfig, TapAction, TimerEntity } fro
 import { formatDuration, parseDuration, splitHMS, toServiceDuration } from './utils.js';
 import './simple-timer-card-editor.js';
 
-const VERSION = '0.1.0';
+const VERSION = __BUNDLE_VERSION__;
 const TICK_INTERVAL_MS = 250;
 const DEFAULT_WARN_THRESHOLD_SECONDS = 10;
 const DEFAULT_ICON = 'mdi:timer-outline';
+/** Press duration that counts as a hold rather than a tap. */
+const HOLD_MS = 500;
+/** Window after a tap during which a second tap is treated as a double-tap. */
+const DOUBLE_TAP_MS = 250;
 
+/** English fallbacks; overridden by hass.localize when available (see _stateLabel). */
 const STATE_LABELS: Record<TimerEntity['state'], string> = {
   idle: 'Idle',
   active: 'Running',
@@ -33,6 +38,17 @@ export class SimpleTimerCard extends LitElement {
   /** Browser clock at the baseline moment — drives the skew-free stopwatch. */
   private _baselineLocalMs?: number;
   private _lastSeenState?: string;
+
+  // --- Gesture state for tap / hold / double-tap on the time element ---
+  private _holdTimer?: number;
+  /** True once a hold has fired for the current press, so pointerup skips the tap. */
+  private _holdFired = false;
+  /** True between pointerdown and pointerup — guards against a stray pointerup. */
+  private _pointerActive = false;
+  /** Set when a pointer sequence completes, so its synthetic `click` echo is ignored (keyboard clicks aren't). */
+  private _suppressClick = false;
+  private _singleTapTimer?: number;
+  private _lastTapMs = 0;
 
   public setConfig(config: SimpleTimerCardConfig): void {
     if (!config?.entity || !config.entity.startsWith('timer.')) {
@@ -66,11 +82,10 @@ export class SimpleTimerCard extends LitElement {
         throw new Error('simple-timer-card: "warn_threshold_seconds" must be a non-negative number');
       }
     }
-    if (
-      config.tap_action !== undefined &&
-      (typeof config.tap_action !== 'object' || config.tap_action === null)
-    ) {
-      throw new Error('simple-timer-card: "tap_action" must be an object');
+    for (const key of ['tap_action', 'hold_action', 'double_tap_action'] as const) {
+      if (config[key] !== undefined && (typeof config[key] !== 'object' || config[key] === null)) {
+        throw new Error(`simple-timer-card: "${key}" must be an object`);
+      }
     }
     this._config = config;
     this._inputSeconds = undefined;
@@ -164,6 +179,18 @@ export class SimpleTimerCard extends LitElement {
     if (this._tickHandle !== undefined) {
       window.clearInterval(this._tickHandle);
       this._tickHandle = undefined;
+    }
+    this._clearGestureTimers();
+  }
+
+  private _clearGestureTimers(): void {
+    if (this._holdTimer !== undefined) {
+      window.clearTimeout(this._holdTimer);
+      this._holdTimer = undefined;
+    }
+    if (this._singleTapTimer !== undefined) {
+      window.clearTimeout(this._singleTapTimer);
+      this._singleTapTimer = undefined;
     }
   }
 
@@ -261,31 +288,139 @@ export class SimpleTimerCard extends LitElement {
     void this._callService('cancel', entity);
   }
 
+  /**
+   * Effective tap action for the current state. With no `tap_action` config the
+   * default is the duration modal — but only while idle, where setting a duration
+   * is meaningful; in active/paused it falls back to a no-op (matching the old
+   * "time isn't clickable while running" behaviour).
+   */
+  private _tapActionFor(state: TimerEntity['state']): TapAction {
+    const configured = this._config?.tap_action;
+    if (configured) return configured;
+    return state === 'idle' ? { action: 'modal' } : { action: 'none' };
+  }
+
+  private _holdActionFor(): TapAction {
+    return this._config?.hold_action ?? { action: 'none' };
+  }
+
+  private _doubleTapActionFor(): TapAction {
+    return this._config?.double_tap_action ?? { action: 'none' };
+  }
+
+  /** Whether the time element should respond to pointer/keyboard at all. */
+  private _timeInteractive(state: TimerEntity['state']): boolean {
+    return (
+      this._tapActionFor(state).action !== 'none' ||
+      this._holdActionFor().action !== 'none' ||
+      this._doubleTapActionFor().action !== 'none'
+    );
+  }
+
+  private _onTimePointerDown(entity: TimerEntity, e: PointerEvent): void {
+    if (e.button > 0) return; // ignore right/middle click
+    this._pointerActive = true;
+    this._holdFired = false;
+    this._suppressClick = false;
+    const hold = this._holdActionFor();
+    if (hold.action === 'none') return;
+    this._clearHoldTimer();
+    this._holdTimer = window.setTimeout(() => {
+      this._holdTimer = undefined;
+      this._holdFired = true;
+      this._performAction(entity, hold);
+    }, HOLD_MS);
+  }
+
+  private _onTimePointerUp(entity: TimerEntity): void {
+    this._clearHoldTimer();
+    if (!this._pointerActive) return;
+    this._pointerActive = false;
+    this._suppressClick = true; // swallow the click this pointer sequence will emit
+    if (this._holdFired) {
+      this._holdFired = false;
+      return; // hold already handled this press
+    }
+    this._handleTap(entity);
+  }
+
+  /** Press abandoned (pointer left the element or was cancelled) — no tap. */
+  private _onTimePointerCancel(): void {
+    this._clearHoldTimer();
+    if (this._pointerActive) this._suppressClick = true;
+    this._pointerActive = false;
+    this._holdFired = false;
+  }
+
+  /**
+   * Pointer taps are handled in pointerup; the browser then emits a synthetic
+   * `click` we swallow here. A `click` with no preceding pointer sequence is a
+   * keyboard activation (Enter/Space) and fires a plain tap — gesture timing
+   * needs a pointer, so keyboard gets tap only.
+   */
   private _onTimeClick(entity: TimerEntity): void {
-    const tap = this._config?.tap_action;
-    const action = tap?.action ?? 'modal';
-    switch (action) {
+    if (this._suppressClick) {
+      this._suppressClick = false;
+      return;
+    }
+    this._performAction(entity, this._tapActionFor(entity.state));
+  }
+
+  /** Resolve a tap into either an immediate action or a deferred single-tap (when double-tap is armed). */
+  private _handleTap(entity: TimerEntity): void {
+    const dbl = this._doubleTapActionFor();
+    if (dbl.action === 'none') {
+      this._performAction(entity, this._tapActionFor(entity.state));
+      return;
+    }
+    const now = Date.now();
+    if (this._singleTapTimer !== undefined && now - this._lastTapMs < DOUBLE_TAP_MS) {
+      window.clearTimeout(this._singleTapTimer);
+      this._singleTapTimer = undefined;
+      this._lastTapMs = 0;
+      this._performAction(entity, dbl);
+      return;
+    }
+    this._lastTapMs = now;
+    this._singleTapTimer = window.setTimeout(() => {
+      this._singleTapTimer = undefined;
+      this._performAction(entity, this._tapActionFor(entity.state));
+    }, DOUBLE_TAP_MS);
+  }
+
+  private _clearHoldTimer(): void {
+    if (this._holdTimer !== undefined) {
+      window.clearTimeout(this._holdTimer);
+      this._holdTimer = undefined;
+    }
+  }
+
+  private _performAction(entity: TimerEntity, tap: TapAction): void {
+    switch (tap.action) {
       case 'modal':
       case 'default':
         this._openModal(entity);
         return;
       case 'none':
         return;
+      case 'reset-duration':
+        this._inputSeconds = undefined;
+        return;
       case 'more-info':
-        this._fireMoreInfo(tap?.entity ?? entity.entity_id);
+        this._fireMoreInfo(tap.entity ?? entity.entity_id);
         return;
       case 'navigate':
-        if (tap?.navigation_path) {
+        if (tap.navigation_path) {
           history.pushState(null, '', tap.navigation_path);
           window.dispatchEvent(new Event('location-changed'));
         }
         return;
       case 'url':
-        if (tap?.url_path) window.open(tap.url_path, '_blank', 'noopener,noreferrer');
+        if (tap.url_path) window.open(tap.url_path, '_blank', 'noopener,noreferrer');
         return;
       case 'call-service':
       case 'perform-action':
-        if (tap?.service && this.hass) {
+        if (tap.service && this.hass) {
           const [domain, service] = tap.service.split('.');
           if (domain && service) {
             void this.hass.callService(domain, service, tap.service_data ?? {}, tap.target);
@@ -305,8 +440,12 @@ export class SimpleTimerCard extends LitElement {
     );
   }
 
-  private _isInteractive(tap: TapAction | undefined): boolean {
-    return (tap?.action ?? 'modal') !== 'none';
+  /** Localized state label, falling back to the built-in English map. */
+  private _stateLabel(state: TimerEntity['state']): string {
+    const translated = this.hass?.localize?.(
+      `component.timer.entity_component._.state.${state}`,
+    );
+    return translated && translated.trim() ? translated : (STATE_LABELS[state] ?? state);
   }
 
   private _openModal(entity: TimerEntity): void {
@@ -360,7 +499,7 @@ export class SimpleTimerCard extends LitElement {
     const showHeader = !hideName || !hideIcon;
     const name = this._config.name ?? entity.attributes.friendly_name ?? entity.entity_id;
     const iconName = this._config.icon ?? entity.attributes.icon ?? DEFAULT_ICON;
-    const stateLabel = STATE_LABELS[entity.state] ?? entity.state;
+    const stateLabel = this._stateLabel(entity.state);
     const isIdle = entity.state === 'idle';
     const displaySeconds = isIdle ? this._dialedSeconds(entity) : this._remainingSeconds(entity);
     const warnThreshold = this._config.warn_threshold_seconds ?? DEFAULT_WARN_THRESHOLD_SECONDS;
@@ -370,9 +509,9 @@ export class SimpleTimerCard extends LitElement {
       displaySeconds > 0 &&
       displaySeconds <= warnThreshold;
     const progress = this._progressFraction(entity);
-    const tap = this._config.tap_action;
-    const interactive = this._isInteractive(tap);
-    const tapTitle = (tap?.action ?? 'modal') === 'modal' ? 'Click to set duration' : '';
+    const interactive = this._timeInteractive(entity.state);
+    const tapTitle =
+      this._tapActionFor(entity.state).action === 'modal' ? 'Click to set duration' : '';
 
     return html`
       <ha-card>
@@ -385,14 +524,19 @@ export class SimpleTimerCard extends LitElement {
                 </div>
               `
             : nothing}
-          ${isIdle
+          ${interactive
             ? html`
                 <button
                   type="button"
                   class="time time-clickable"
-                  data-state="idle"
-                  data-interactive=${interactive ? 'true' : 'false'}
-                  @click=${interactive ? () => this._onTimeClick(entity) : undefined}
+                  data-state=${entity.state}
+                  data-warn=${warn ? 'true' : 'false'}
+                  @pointerdown=${(e: PointerEvent) => this._onTimePointerDown(entity, e)}
+                  @pointerup=${() => this._onTimePointerUp(entity)}
+                  @pointercancel=${() => this._onTimePointerCancel()}
+                  @pointerleave=${() => this._onTimePointerCancel()}
+                  @click=${() => this._onTimeClick(entity)}
+                  @contextmenu=${(e: Event) => e.preventDefault()}
                   aria-label="Timer time"
                   title=${tapTitle}
                 >
@@ -572,6 +716,11 @@ export class SimpleTimerCard extends LitElement {
       border-radius: 8px;
       cursor: pointer;
       transition: background-color 0.15s ease;
+      /* Touch hold/double-tap: suppress the callout, text selection, and double-tap zoom. */
+      touch-action: manipulation;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
     }
     .time-clickable:hover {
       background: var(--secondary-background-color, rgba(127, 127, 127, 0.08));
@@ -579,15 +728,6 @@ export class SimpleTimerCard extends LitElement {
     .time-clickable:focus-visible {
       outline: 2px solid var(--primary-color);
       outline-offset: 2px;
-    }
-    .time-clickable[data-interactive='false'] {
-      cursor: default;
-    }
-    .time-clickable[data-interactive='false']:hover {
-      background: transparent;
-    }
-    .time-clickable[data-interactive='false']:focus-visible {
-      outline: none;
     }
 
     .state {

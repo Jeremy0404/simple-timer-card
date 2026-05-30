@@ -29,6 +29,8 @@ export interface HomeAssistant {
   ) => Promise<unknown>;
   themes?: { darkMode?: boolean };
   language?: string;
+  /** HA's frontend translator. Returns '' for an unknown key. */
+  localize?: (key: string, ...args: unknown[]) => string;
 }
 
 export interface HassServiceTarget {
@@ -38,7 +40,13 @@ export interface HassServiceTarget {
 }
 
 export interface TapAction {
-  /** 'more-info' | 'toggle' | 'call-service' | 'navigate' | 'url' | 'none' | (anything HA might add) */
+  /**
+   * Standard HA actions ('more-info' | 'call-service' | 'navigate' | 'url' |
+   * 'none' | …) plus card-specific values:
+   *   - 'modal' / 'default' — open the duration picker (the built-in tap default)
+   *   - 'reset-duration'    — clear the dialed override, reverting to the helper's
+   *                           stored duration
+   */
   action: string;
   entity?: string;
   navigation_path?: string;
@@ -61,4 +69,6 @@ export interface SimpleTimerCardConfig {
   show_progress?: boolean;
   warn_threshold_seconds?: number;
   tap_action?: TapAction;
+  hold_action?: TapAction;
+  double_tap_action?: TapAction;
 }
