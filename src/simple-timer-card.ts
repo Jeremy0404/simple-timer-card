@@ -45,6 +45,8 @@ export class SimpleTimerCard extends LitElement {
   private _activeBaselineMs?: number;
   /** Browser clock at the baseline moment — drives the skew-free stopwatch. */
   private _baselineLocalMs?: number;
+  /** finishes_at the baseline was derived from; a move triggers a re-baseline. */
+  private _baselineFinishesAt?: string;
   private _lastSeenState?: string;
 
   private readonly _timeGestures = new TapController({
@@ -197,29 +199,35 @@ export class SimpleTimerCard extends LitElement {
       this._lastSeenState = undefined;
       this._activeBaselineMs = undefined;
       this._baselineLocalMs = undefined;
+      this._baselineFinishesAt = undefined;
       return;
     }
     const newState = entity.state;
     if (newState === 'active' && entity.attributes.finishes_at) {
-      if (this._lastSeenState !== 'active') {
-        const finishMs = Date.parse(entity.attributes.finishes_at);
-        const changedMs = Date.parse(entity.last_changed);
+      const finishesAt = entity.attributes.finishes_at;
+      const firstActiveFrame = this._lastSeenState !== 'active';
+      const finishMoved = finishesAt !== this._baselineFinishesAt;
+      if (firstActiveFrame || finishMoved) {
+        const finishMs = Date.parse(finishesAt);
         let totalMs: number;
         if (this._lastSeenState === undefined) {
-          // Initial mount with the timer already active — no observed transition,
-          // so fall back to the clock-skewed estimate. HA doesn't emit periodic
-          // updates while active, so this skew can't be resynced before pause/finish.
+          // Already active on mount: no HA-clock anchor for "now", so accept browser-clock skew.
           totalMs = Math.max(0, finishMs - Date.now());
         } else {
-          // Observed transition: total computed in HA's clock (skew-free).
-          totalMs = Math.max(0, finishMs - changedMs);
+          // last_updated tracks finishes_at recomputes (skew-free); last_changed misses an active→active timer.change.
+          const updatedMs = Date.parse(entity.last_updated);
+          totalMs = Number.isNaN(updatedMs)
+            ? Math.max(0, finishMs - Date.now())
+            : Math.max(0, finishMs - updatedMs);
         }
         this._activeBaselineMs = totalMs;
         this._baselineLocalMs = Date.now();
+        this._baselineFinishesAt = finishesAt;
       }
     } else {
       this._activeBaselineMs = undefined;
       this._baselineLocalMs = undefined;
+      this._baselineFinishesAt = undefined;
     }
     this._lastSeenState = newState;
   }
@@ -443,10 +451,12 @@ export class SimpleTimerCard extends LitElement {
     const tapTitle =
       this._tapAction(entity.state).action === 'modal' ? 'Click to set duration' : '';
     const timeDisplay = this._renderTimeDisplay(entity, displaySeconds, warn, interactive, tapTitle);
-    // timer.change rejects on idle/paused timers, so the ± controls are active-only.
+    // timer.change rejects on idle/paused timers, so the + control is active-only.
     const showAdjust = !!this._config.adjust && entity.state === 'active' && this._supportsAdjust();
     const adjustStep = this._config.adjust_step ?? DEFAULT_ADJUST_STEP_SECONDS;
-    const minusDisabled = displaySeconds < adjustStep;
+    const totalSeconds = parseDuration(entity.attributes.duration);
+    // HA rejects extending a timer past its configured duration, so the + needs room for a step.
+    const plusDisabled = displaySeconds + adjustStep > totalSeconds;
 
     return html`
       <ha-card>
@@ -462,19 +472,11 @@ export class SimpleTimerCard extends LitElement {
           ${showAdjust
             ? html`
                 <div class="time-row">
-                  <button
-                    type="button"
-                    class="adjust-btn"
-                    ?disabled=${minusDisabled}
-                    @click=${() => this._adjust(entity, -adjustStep)}
-                    aria-label="Subtract time"
-                  >
-                    <ha-icon icon="mdi:minus"></ha-icon>
-                  </button>
                   ${timeDisplay}
                   <button
                     type="button"
                     class="adjust-btn"
+                    ?disabled=${plusDisabled}
                     @click=${() => this._adjust(entity, adjustStep)}
                     aria-label="Add time"
                   >
