@@ -20,6 +20,7 @@ const SCHEMA: HaFormSchemaItem[] = [
   { name: 'color', selector: { text: {} } },
   { name: 'compact', selector: { boolean: {} }, default: false },
   { name: 'show_progress', selector: { boolean: {} }, default: true },
+  { name: 'show_finish_time', selector: { boolean: {} }, default: false },
   { name: 'hide_icon', selector: { boolean: {} }, default: false },
   { name: 'hide_name', selector: { boolean: {} }, default: false },
   { name: 'hide_state', selector: { boolean: {} }, default: false },
@@ -52,6 +53,7 @@ const LABELS: Record<string, string> = {
   color: 'Accent color (e.g. #e91e63 or tomato)',
   compact: 'Compact layout',
   show_progress: 'Show progress bar',
+  show_finish_time: 'Show finish time',
   hide_icon: 'Hide icon',
   hide_name: 'Hide name',
   hide_state: 'Hide state label',
@@ -106,6 +108,7 @@ export class SimpleTimerCardEditor extends LitElement {
       'hide_name',
       'hide_state',
       'show_progress',
+      'show_finish_time',
       'adjust',
     ] as const) {
       if (raw[key] === undefined || raw[key] === null) delete raw[key];

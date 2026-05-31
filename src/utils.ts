@@ -32,6 +32,21 @@ export function toAdjustDuration(deltaSeconds: number): string {
   return `${sign}${toServiceDuration(Math.abs(deltaSeconds))}`;
 }
 
+/**
+ * Whole calendar days between two epoch-ms instants, measured by local midnight:
+ * 0 when both land on the same date, 1 when `toMs` is the next day, etc. Rounded
+ * so a 23/25-hour DST day still counts as one. Used to flag a finish time that
+ * spills past midnight ("+1d").
+ */
+export function dayOffset(fromMs: number, toMs: number): number {
+  const startOfLocalDay = (ms: number): number => {
+    const d = new Date(ms);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  };
+  return Math.round((startOfLocalDay(toMs) - startOfLocalDay(fromMs)) / 86_400_000);
+}
+
 /** Split a non-negative seconds count into hours/minutes/seconds. */
 export function splitHMS(totalSeconds: number): { h: number; m: number; s: number } {
   const t = Math.max(0, Math.floor(totalSeconds));
