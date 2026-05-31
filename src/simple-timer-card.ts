@@ -11,6 +11,7 @@ import {
   toServiceDuration,
 } from './utils.js';
 import { TapController } from './tap-controller.js';
+import { Chime } from './chime.js';
 import './simple-timer-card-editor.js';
 
 const VERSION = __BUNDLE_VERSION__;
@@ -20,6 +21,8 @@ const DEFAULT_ADJUST_STEP_SECONDS = 60;
 const DEFAULT_ICON = 'mdi:timer-outline';
 const HOLD_THRESHOLD_MS = 500;
 const DOUBLE_TAP_WINDOW_MS = 250;
+const FLASH_DURATION_MS = 1000;
+const CANCEL_MIN_REMAINING_SECONDS = 2;
 
 const NO_ACTION: TapAction = { action: 'none' };
 const OPEN_DURATION_MODAL: TapAction = { action: 'modal' };
@@ -38,8 +41,12 @@ export class SimpleTimerCard extends LitElement {
   @state() private _inputSeconds?: number;
   /** Duration being edited in the modal. */
   @state() private _modalSeconds = 0;
+  @state() private _flashing = false;
 
   @query('dialog') private _dialog?: HTMLDialogElement;
+
+  private readonly _chime = new Chime();
+  private _flashHandle?: number;
 
   private _tickHandle: number | undefined;
   /** Total ms remaining at baseline (when we saw the timer go active). */
@@ -77,6 +84,8 @@ export class SimpleTimerCard extends LitElement {
       'hide_state',
       'show_progress',
       'show_finish_time',
+      'finish_sound',
+      'finish_flash',
       'adjust',
     ] as const) {
       if (config[key] !== undefined && typeof config[key] !== 'boolean') {
@@ -191,7 +200,12 @@ export class SimpleTimerCard extends LitElement {
       window.clearInterval(this._tickHandle);
       this._tickHandle = undefined;
     }
+    if (this._flashHandle !== undefined) {
+      window.clearTimeout(this._flashHandle);
+      this._flashHandle = undefined;
+    }
     this._timeGestures.dispose();
+    this._chime.dispose();
   }
 
   protected override willUpdate(changed: PropertyValues): void {
@@ -199,9 +213,7 @@ export class SimpleTimerCard extends LitElement {
     const entity = this._entity;
     if (!entity) {
       this._lastSeenState = undefined;
-      this._activeBaselineMs = undefined;
-      this._baselineLocalMs = undefined;
-      this._baselineFinishesAt = undefined;
+      this._resetBaseline();
       return;
     }
     const newState = entity.state;
@@ -227,11 +239,49 @@ export class SimpleTimerCard extends LitElement {
         this._baselineFinishesAt = finishesAt;
       }
     } else {
-      this._activeBaselineMs = undefined;
-      this._baselineLocalMs = undefined;
-      this._baselineFinishesAt = undefined;
+      if (newState === 'idle' && this._lastSeenState === 'active') {
+        this._maybeFireFinishFeedback();
+      }
+      this._resetBaseline();
     }
     this._lastSeenState = newState;
+  }
+
+  private _resetBaseline(): void {
+    this._activeBaselineMs = undefined;
+    this._baselineLocalMs = undefined;
+    this._baselineFinishesAt = undefined;
+  }
+
+  private _stopwatchRemainingSeconds(): number {
+    if (this._activeBaselineMs === undefined || this._baselineLocalMs === undefined) {
+      return Number.POSITIVE_INFINITY;
+    }
+    const elapsed = Date.now() - this._baselineLocalMs;
+    return Math.max(0, (this._activeBaselineMs - elapsed) / 1000);
+  }
+
+  private _finishFeedbackEnabled(): boolean {
+    return !!this._config?.finish_sound || !!this._config?.finish_flash;
+  }
+
+  private _wasCancelled(): boolean {
+    return this._stopwatchRemainingSeconds() > CANCEL_MIN_REMAINING_SECONDS;
+  }
+
+  private _maybeFireFinishFeedback(): void {
+    if (!this._finishFeedbackEnabled() || this._wasCancelled()) return;
+    if (this._config?.finish_sound) this._chime.play();
+    if (this._config?.finish_flash) this._startFlash();
+  }
+
+  private _startFlash(): void {
+    if (this._flashHandle !== undefined) window.clearTimeout(this._flashHandle);
+    this._flashing = true;
+    this._flashHandle = window.setTimeout(() => {
+      this._flashing = false;
+      this._flashHandle = undefined;
+    }, FLASH_DURATION_MS);
   }
 
   private get _entity(): TimerEntity | undefined {
@@ -476,6 +526,7 @@ export class SimpleTimerCard extends LitElement {
 
     return html`
       <ha-card>
+        ${this._flashing ? html`<div class="flash" aria-hidden="true"></div>` : nothing}
         <div class="content" data-compact=${compact ? 'true' : 'false'}>
           ${showHeader
             ? html`
@@ -845,6 +896,29 @@ export class SimpleTimerCard extends LitElement {
       transform-origin: left;
       transform: scaleX(var(--progress, 0));
       transition: transform 0.25s linear;
+    }
+
+    .flash {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+      background: var(--success-color, var(--primary-color));
+      opacity: 0;
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      .flash {
+        animation: stc-flash 0.5s ease-in-out 2;
+      }
+    }
+    @keyframes stc-flash {
+      0%,
+      100% {
+        opacity: 0;
+      }
+      50% {
+        opacity: 0.35;
+      }
     }
 
     .warning {
