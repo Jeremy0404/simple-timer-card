@@ -21,6 +21,8 @@ const SCHEMA: HaFormSchemaItem[] = [
   { name: 'compact', selector: { boolean: {} }, default: false },
   { name: 'show_progress', selector: { boolean: {} }, default: true },
   { name: 'show_finish_time', selector: { boolean: {} }, default: false },
+  { name: 'finish_sound', selector: { boolean: {} }, default: false },
+  { name: 'finish_flash', selector: { boolean: {} }, default: false },
   { name: 'hide_icon', selector: { boolean: {} }, default: false },
   { name: 'hide_name', selector: { boolean: {} }, default: false },
   { name: 'hide_state', selector: { boolean: {} }, default: false },
@@ -54,6 +56,8 @@ const LABELS: Record<string, string> = {
   compact: 'Compact layout',
   show_progress: 'Show progress bar',
   show_finish_time: 'Show finish time',
+  finish_sound: 'Beep when the timer finishes',
+  finish_flash: 'Flash the card when the timer finishes',
   hide_icon: 'Hide icon',
   hide_name: 'Hide name',
   hide_state: 'Hide state label',
@@ -109,6 +113,8 @@ export class SimpleTimerCardEditor extends LitElement {
       'hide_state',
       'show_progress',
       'show_finish_time',
+      'finish_sound',
+      'finish_flash',
       'adjust',
     ] as const) {
       if (raw[key] === undefined || raw[key] === null) delete raw[key];

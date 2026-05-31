@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `finish_sound` plays a short synthesized WebAudio beep when the watched timer
+  finishes (no audio asset shipped; subject to the browser's autoplay policy).
+- `finish_flash` briefly pulses the card with the accent color on finish,
+  honouring `prefers-reduced-motion`. Both fire only on a genuine finish, never
+  on cancel — distinguished by the time left when the timer goes idle.
+
 ## [0.3.0] — 2026-05-31
 
 ### Added

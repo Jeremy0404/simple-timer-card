@@ -70,6 +70,8 @@ export interface SimpleTimerCardConfig {
   hide_state?: boolean;
   show_progress?: boolean;
   show_finish_time?: boolean;
+  finish_sound?: boolean;
+  finish_flash?: boolean;
   warn_threshold_seconds?: number;
   adjust?: boolean;
   adjust_step?: number;

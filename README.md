@@ -18,6 +18,7 @@ A clean, minimal Lovelace card for Home Assistant `timer` helpers. View the coun
 - End-of-timer warning pulse below 10 seconds
 - Optional + button to add time back to a running timer without restarting it
 - Optional finish time on the state row (e.g. `ends 14:35`)
+- Optional finish feedback — a short beep and/or a card flash when the timer ends
 - Tap, hold, and double-tap actions on the time — more-info, navigate, call a service, reset the dialed duration, and more
 - Theme-aware — uses HA's CSS variables, looks native in any theme
 - State labels (`Idle` / `Running` / `Paused`) follow your Home Assistant language
@@ -82,6 +83,8 @@ compact: false
 | `compact`                 | `boolean` | `false`                                | Denser layout — smaller padding, time, and buttons.                                                                                  |
 | `show_progress`           | `boolean` | `true`                                 | Show the thin progress bar at the bottom of the card.                                                                                |
 | `show_finish_time`        | `boolean` | `false`                                | Show the wall-clock time the timer ends (e.g. `Running · ends 14:35`). Appears on the state row while running or paused; rides its own line when `hide_state` is set. Crossing midnight adds a `+1d` marker. |
+| `finish_sound`            | `boolean` | `false`                                | Play a short synthesized beep when the timer finishes (not on cancel). Needs a prior interaction with the dashboard — browsers block autoplay until then. |
+| `finish_flash`            | `boolean` | `false`                                | Briefly pulse the card with the accent color when the timer finishes (not on cancel). Honours `prefers-reduced-motion`.             |
 | `hide_icon`               | `boolean` | `false`                                | Hide the icon.                                                                                                                       |
 | `hide_name`               | `boolean` | `false`                                | Hide the name. (If both icon and name are hidden, the header row disappears.)                                                        |
 | `hide_state`              | `boolean` | `false`                                | Hide the state label (`Idle` / `Running` / `Paused`).                                                                                |
@@ -172,6 +175,30 @@ only appears while the timer is active (HA's `timer.change` doesn't apply to idl
 or paused timers), and is hidden entirely if your Home Assistant core predates
 the `timer.change` service.
 
+### Finish feedback (beep & flash)
+
+Set `finish_sound` and/or `finish_flash` to react when the timer reaches zero:
+
+```yaml
+type: custom:simple-timer-card
+entity: timer.coffee
+finish_sound: true
+finish_flash: true
+```
+
+- **`finish_sound`** synthesizes a short two-tone beep with WebAudio — no audio
+  file is shipped or fetched. Browsers block autoplay until the page has been
+  interacted with, so the beep is silent until you've clicked the dashboard at
+  least once (the usual case). It is **not** a substitute for a server-side
+  notification automation, which fires regardless of whether a browser is open.
+- **`finish_flash`** pulses a translucent accent tint over the whole card. It
+  respects `prefers-reduced-motion` — with that set, nothing animates.
+
+Both fire only on a genuine **finish** (the countdown reaching zero), never on
+**Cancel**. The two are distinguished by the time left on the clock at the moment
+the timer goes idle, so a Cancel in the final couple of seconds may still register
+as a finish.
+
 ### Example using everything
 
 ```yaml
@@ -186,6 +213,8 @@ warn_threshold_seconds: 5
 adjust: true
 adjust_step: 30
 show_finish_time: true
+finish_sound: true
+finish_flash: true
 tap_action:
   action: more-info
 ```
