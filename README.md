@@ -16,7 +16,7 @@ A clean, minimal Lovelace card for Home Assistant `timer` helpers. View the coun
 - Start, Pause, Resume, and Cancel controls
 - Smooth live countdown with a progress bar
 - End-of-timer warning pulse below 10 seconds
-- Optional ± buttons to extend or trim a running timer without restarting it
+- Optional + button to add time back to a running timer without restarting it
 - Tap, hold, and double-tap actions on the time — more-info, navigate, call a service, reset the dialed duration, and more
 - Theme-aware — uses HA's CSS variables, looks native in any theme
 - State labels (`Idle` / `Running` / `Paused`) follow your Home Assistant language
@@ -84,8 +84,8 @@ compact: false
 | `hide_name`               | `boolean` | `false`                                | Hide the name. (If both icon and name are hidden, the header row disappears.)                                                        |
 | `hide_state`              | `boolean` | `false`                                | Hide the state label (`Idle` / `Running` / `Paused`).                                                                                |
 | `warn_threshold_seconds`  | `number`  | `10`                                   | Seconds below which the countdown turns warning-color and pulses. `0` disables the warning.                                          |
-| `adjust`                  | `boolean` | `false`                                | Show − / + buttons flanking the time to extend or trim a **running** timer (via `timer.change`, no cancel-and-restart). Active-only; hidden if your HA core lacks `timer.change`. |
-| `adjust_step`             | `number`  | `60`                                   | Seconds added or removed per ± tap. The − button is disabled when fewer than this many seconds remain.                               |
+| `adjust`                  | `boolean` | `false`                                | Show a `+` button beside the time to add time back to a **running** timer (via `timer.change`, no cancel-and-restart). Active-only; hidden if your HA core lacks `timer.change`. |
+| `adjust_step`             | `number`  | `60`                                   | Seconds added per `+` tap. HA won't extend a timer past its original duration, so `+` is disabled until at least this many seconds have elapsed.                               |
 | `tap_action`              | `object`  | open duration modal                    | Action when the time is tapped. Standard HA action object. Supported actions: `more-info`, `navigate`, `url`, `call-service`, `none`, plus `reset-duration`. Omit for the default modal.    |
 | `hold_action`             | `object`  | none                                   | Action when the time is pressed and held (~0.5 s). Same shape as `tap_action`. Does nothing unless set.                              |
 | `double_tap_action`       | `object`  | none                                   | Action when the time is double-tapped (~0.25 s window). Same shape as `tap_action`. Does nothing unless set.                         |
@@ -151,10 +151,10 @@ hold_action:
 
 ### Adjust a running timer
 
-Set `adjust: true` to show − / + buttons flanking the time. Each tap calls
-`timer.change` to extend or trim the **running** timer in place — no cancel and
-restart, so the finish time just shifts. Set the step with `adjust_step`
-(seconds, default 60); the − button greys out once fewer than one step remains.
+Set `adjust: true` to show a `+` button beside the time. Each tap calls
+`timer.change` to add `adjust_step` seconds back to the **running** timer in
+place — no cancel and restart, so the finish time just shifts out. Set the step
+with `adjust_step` (seconds, default 60).
 
 ```yaml
 type: custom:simple-timer-card
@@ -163,9 +163,12 @@ adjust: true
 adjust_step: 30
 ```
 
-The buttons only appear while the timer is active (HA's `timer.change` doesn't
-apply to idle or paused timers), and are hidden entirely if your Home Assistant
-core predates the `timer.change` service.
+Home Assistant won't let a timer be extended **beyond its original duration**, so
+`+` only adds time you've already counted down: it stays greyed out until at
+least one step has elapsed, and tops out at the configured duration. The button
+only appears while the timer is active (HA's `timer.change` doesn't apply to idle
+or paused timers), and is hidden entirely if your Home Assistant core predates
+the `timer.change` service.
 
 ### Example using everything
 
