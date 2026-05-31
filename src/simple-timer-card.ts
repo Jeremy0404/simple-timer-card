@@ -2,13 +2,20 @@ import { LitElement, html, css, nothing, type PropertyValues, type TemplateResul
 import { customElement, property, state, query } from 'lit/decorators.js';
 import { styleMap } from 'lit/directives/style-map.js';
 import type { HomeAssistant, SimpleTimerCardConfig, TapAction, TimerEntity } from './types.js';
-import { formatDuration, parseDuration, splitHMS, toServiceDuration } from './utils.js';
+import {
+  formatDuration,
+  parseDuration,
+  splitHMS,
+  toAdjustDuration,
+  toServiceDuration,
+} from './utils.js';
 import { TapController } from './tap-controller.js';
 import './simple-timer-card-editor.js';
 
 const VERSION = __BUNDLE_VERSION__;
 const TICK_INTERVAL_MS = 250;
 const DEFAULT_WARN_THRESHOLD_SECONDS = 10;
+const DEFAULT_ADJUST_STEP_SECONDS = 60;
 const DEFAULT_ICON = 'mdi:timer-outline';
 const HOLD_THRESHOLD_MS = 500;
 const DOUBLE_TAP_WINDOW_MS = 250;
@@ -66,6 +73,7 @@ export class SimpleTimerCard extends LitElement {
       'hide_icon',
       'hide_state',
       'show_progress',
+      'adjust',
     ] as const) {
       if (config[key] !== undefined && typeof config[key] !== 'boolean') {
         throw new Error(`simple-timer-card: "${key}" must be a boolean`);
@@ -80,6 +88,11 @@ export class SimpleTimerCard extends LitElement {
         config.warn_threshold_seconds < 0
       ) {
         throw new Error('simple-timer-card: "warn_threshold_seconds" must be a non-negative number');
+      }
+    }
+    if (config.adjust_step !== undefined) {
+      if (typeof config.adjust_step !== 'number' || config.adjust_step <= 0) {
+        throw new Error('simple-timer-card: "adjust_step" must be a positive number');
       }
     }
     for (const key of ['tap_action', 'hold_action', 'double_tap_action'] as const) {
@@ -271,6 +284,19 @@ export class SimpleTimerCard extends LitElement {
     void this._callService('cancel', entity);
   }
 
+  private _adjust(entity: TimerEntity, deltaSeconds: number): void {
+    void this._callService('change', entity, { duration: toAdjustDuration(deltaSeconds) });
+  }
+
+  /**
+   * `timer.change` was added in a later HA release than start/pause/cancel, so
+   * gate the ± controls on its presence in the service registry rather than
+   * letting a click fail silently on older cores.
+   */
+  private _supportsAdjust(): boolean {
+    return this.hass?.services?.timer?.change !== undefined;
+  }
+
   private _stateOf(): TimerEntity['state'] {
     return this._entity?.state ?? 'idle';
   }
@@ -416,6 +442,11 @@ export class SimpleTimerCard extends LitElement {
     const interactive = this._timeInteractive(entity.state);
     const tapTitle =
       this._tapAction(entity.state).action === 'modal' ? 'Click to set duration' : '';
+    const timeDisplay = this._renderTimeDisplay(entity, displaySeconds, warn, interactive, tapTitle);
+    // timer.change rejects on idle/paused timers, so the ± controls are active-only.
+    const showAdjust = !!this._config.adjust && entity.state === 'active' && this._supportsAdjust();
+    const adjustStep = this._config.adjust_step ?? DEFAULT_ADJUST_STEP_SECONDS;
+    const minusDisabled = displaySeconds < adjustStep;
 
     return html`
       <ha-card>
@@ -428,34 +459,30 @@ export class SimpleTimerCard extends LitElement {
                 </div>
               `
             : nothing}
-          ${interactive
+          ${showAdjust
             ? html`
-                <button
-                  type="button"
-                  class="time time-clickable"
-                  data-state=${entity.state}
-                  data-warn=${warn ? 'true' : 'false'}
-                  @pointerdown=${(e: PointerEvent) => this._timeGestures.handlePointerDown(e)}
-                  @pointerup=${() => this._timeGestures.handlePointerUp()}
-                  @pointercancel=${() => this._timeGestures.handlePointerCancel()}
-                  @pointerleave=${() => this._timeGestures.handlePointerCancel()}
-                  @click=${() => this._timeGestures.handleClick()}
-                  @contextmenu=${(e: Event) => e.preventDefault()}
-                  aria-label="Timer time"
-                  title=${tapTitle}
-                >
-                  ${formatDuration(displaySeconds)}
-                </button>
-              `
-            : html`
-                <div
-                  class="time"
-                  data-state=${entity.state}
-                  data-warn=${warn ? 'true' : 'false'}
-                >
-                  ${formatDuration(displaySeconds)}
+                <div class="time-row">
+                  <button
+                    type="button"
+                    class="adjust-btn"
+                    ?disabled=${minusDisabled}
+                    @click=${() => this._adjust(entity, -adjustStep)}
+                    aria-label="Subtract time"
+                  >
+                    <ha-icon icon="mdi:minus"></ha-icon>
+                  </button>
+                  ${timeDisplay}
+                  <button
+                    type="button"
+                    class="adjust-btn"
+                    @click=${() => this._adjust(entity, adjustStep)}
+                    aria-label="Add time"
+                  >
+                    <ha-icon icon="mdi:plus"></ha-icon>
+                  </button>
                 </div>
-              `}
+              `
+            : timeDisplay}
           ${hideState
             ? nothing
             : html`<div class="state" data-state=${entity.state} aria-live="polite">${stateLabel}</div>`}
@@ -466,6 +493,40 @@ export class SimpleTimerCard extends LitElement {
           : nothing}
       </ha-card>
       ${this._renderModal()}
+    `;
+  }
+
+  private _renderTimeDisplay(
+    entity: TimerEntity,
+    displaySeconds: number,
+    warn: boolean,
+    interactive: boolean,
+    tapTitle: string,
+  ): TemplateResult {
+    if (interactive) {
+      return html`
+        <button
+          type="button"
+          class="time time-clickable"
+          data-state=${entity.state}
+          data-warn=${warn ? 'true' : 'false'}
+          @pointerdown=${(e: PointerEvent) => this._timeGestures.handlePointerDown(e)}
+          @pointerup=${() => this._timeGestures.handlePointerUp()}
+          @pointercancel=${() => this._timeGestures.handlePointerCancel()}
+          @pointerleave=${() => this._timeGestures.handlePointerCancel()}
+          @click=${() => this._timeGestures.handleClick()}
+          @contextmenu=${(e: Event) => e.preventDefault()}
+          aria-label="Timer time"
+          title=${tapTitle}
+        >
+          ${formatDuration(displaySeconds)}
+        </button>
+      `;
+    }
+    return html`
+      <div class="time" data-state=${entity.state} data-warn=${warn ? 'true' : 'false'}>
+        ${formatDuration(displaySeconds)}
+      </div>
     `;
   }
 
@@ -634,6 +695,42 @@ export class SimpleTimerCard extends LitElement {
       outline-offset: 2px;
     }
 
+    .time-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .adjust-btn {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      padding: 0;
+      border-radius: 50%;
+      border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.3));
+      background: transparent;
+      color: var(--primary-text-color);
+      cursor: pointer;
+      --mdc-icon-size: 20px;
+      transition:
+        background-color 0.15s ease,
+        border-color 0.15s ease;
+    }
+    .adjust-btn:hover:not(:disabled) {
+      background: var(--secondary-background-color, rgba(127, 127, 127, 0.08));
+    }
+    .adjust-btn:focus-visible {
+      outline: 2px solid var(--primary-color);
+      outline-offset: 2px;
+    }
+    .adjust-btn:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+
     .state {
       color: var(--secondary-text-color);
       font-size: 0.75rem;
@@ -726,6 +823,11 @@ export class SimpleTimerCard extends LitElement {
     .content[data-compact='true'] .time {
       font-size: 1.75rem;
       padding: 2px 10px;
+    }
+    .content[data-compact='true'] .adjust-btn {
+      width: 28px;
+      height: 28px;
+      --mdc-icon-size: 16px;
     }
     .content[data-compact='true'] .btn {
       padding: 6px 12px;

@@ -21,6 +21,8 @@ export interface TimerEntity extends Omit<HassEntity, 'state' | 'attributes'> {
 
 export interface HomeAssistant {
   states: Record<string, HassEntity>;
+  /** Registry of available services, keyed by domain then service name. */
+  services?: Record<string, Record<string, unknown>>;
   callService: (
     domain: string,
     service: string,
@@ -68,6 +70,8 @@ export interface SimpleTimerCardConfig {
   hide_state?: boolean;
   show_progress?: boolean;
   warn_threshold_seconds?: number;
+  adjust?: boolean;
+  adjust_step?: number;
   tap_action?: TapAction;
   hold_action?: TapAction;
   double_tap_action?: TapAction;

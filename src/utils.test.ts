@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'vitest';
-import { formatDuration, parseDuration, splitHMS, toServiceDuration } from './utils.js';
+import {
+  formatDuration,
+  parseDuration,
+  splitHMS,
+  toAdjustDuration,
+  toServiceDuration,
+} from './utils.js';
 
 describe('parseDuration', () => {
   test('parses HH:MM:SS', () => {
@@ -75,6 +81,26 @@ describe('toServiceDuration', () => {
     for (const s of [0, 30, 90, 3600, 3723, 86399]) {
       expect(parseDuration(toServiceDuration(s))).toBe(s);
     }
+  });
+});
+
+describe('toAdjustDuration', () => {
+  test('formats positive deltas without a sign', () => {
+    expect(toAdjustDuration(0)).toBe('00:00:00');
+    expect(toAdjustDuration(30)).toBe('00:00:30');
+    expect(toAdjustDuration(60)).toBe('00:01:00');
+    expect(toAdjustDuration(3661)).toBe('01:01:01');
+  });
+
+  test('prefixes negative deltas with a minus', () => {
+    expect(toAdjustDuration(-30)).toBe('-00:00:30');
+    expect(toAdjustDuration(-60)).toBe('-00:01:00');
+    expect(toAdjustDuration(-3661)).toBe('-01:01:01');
+  });
+
+  test('floors fractional deltas', () => {
+    expect(toAdjustDuration(30.9)).toBe('00:00:30');
+    expect(toAdjustDuration(-30.9)).toBe('-00:00:30');
   });
 });
 
