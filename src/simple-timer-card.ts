@@ -45,7 +45,7 @@ export class SimpleTimerCard extends LitElement {
   private _activeBaselineMs?: number;
   /** Browser clock at the baseline moment — drives the skew-free stopwatch. */
   private _baselineLocalMs?: number;
-  /** finishes_at the current baseline was derived from; a change means re-baseline. */
+  /** finishes_at the baseline was derived from; a move triggers a re-baseline. */
   private _baselineFinishesAt?: string;
   private _lastSeenState?: string;
 
@@ -205,21 +205,16 @@ export class SimpleTimerCard extends LitElement {
     const newState = entity.state;
     if (newState === 'active' && entity.attributes.finishes_at) {
       const finishesAt = entity.attributes.finishes_at;
-      // Re-baseline on the first active frame and again whenever finishes_at moves —
-      // the latter covers a mid-flight timer.change, which keeps the state 'active'
-      // (so it isn't a transition) but shifts the finish time.
-      if (this._lastSeenState !== 'active' || finishesAt !== this._baselineFinishesAt) {
+      const firstActiveFrame = this._lastSeenState !== 'active';
+      const finishMoved = finishesAt !== this._baselineFinishesAt;
+      if (firstActiveFrame || finishMoved) {
         const finishMs = Date.parse(finishesAt);
         let totalMs: number;
         if (this._lastSeenState === undefined) {
-          // Initial mount with the timer already active — no observed transition, and
-          // last_updated marks when it started (not now), so fall back to the
-          // clock-skewed browser estimate. A later transition or timer.change resyncs.
+          // Already active on mount: no HA-clock anchor for "now", so accept browser-clock skew.
           totalMs = Math.max(0, finishMs - Date.now());
         } else {
-          // Observed start/resume or a timer.change: last_updated is the moment HA
-          // (re)computed finishes_at, so the delta is the remaining in HA's clock
-          // (skew-free). last_changed wouldn't move on an active→active adjust.
+          // last_updated tracks finishes_at recomputes (skew-free); last_changed misses an active→active timer.change.
           const updatedMs = Date.parse(entity.last_updated);
           totalMs = Number.isNaN(updatedMs)
             ? Math.max(0, finishMs - Date.now())
@@ -459,9 +454,8 @@ export class SimpleTimerCard extends LitElement {
     // timer.change rejects on idle/paused timers, so the + control is active-only.
     const showAdjust = !!this._config.adjust && entity.state === 'active' && this._supportsAdjust();
     const adjustStep = this._config.adjust_step ?? DEFAULT_ADJUST_STEP_SECONDS;
-    // HA refuses to extend a running timer past its configured duration, so the +
-    // is only live once a full step has elapsed (i.e. there's room to add it back).
     const totalSeconds = parseDuration(entity.attributes.duration);
+    // HA rejects extending a timer past its configured duration, so the + needs room for a step.
     const plusDisabled = displaySeconds + adjustStep > totalSeconds;
 
     return html`
