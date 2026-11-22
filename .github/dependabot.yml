@@ -14,6 +14,9 @@ updates:
       prefix: chore
       include: scope
     ignore:
+      # typescript-eslint does not accept TypeScript 7 yet.
+      - dependency-name: "typescript"
+        versions: [">=7.0.0"]
       # Moves with the runtime Node major.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
